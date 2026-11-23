@@ -360,6 +360,7 @@ export function createRenderer3D(canvas) {
   const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   const ndc = new THREE.Vector2();
   const hitPoint = new THREE.Vector3();
+  const projPoint = new THREE.Vector3();
 
   let mode = 'chase';
   let heading = -Math.PI / 2;
@@ -528,6 +529,20 @@ export function createRenderer3D(canvas) {
     }
     camera.position.copy(curPos);
     camera.lookAt(curLook);
+    // Projection and heading hooks for the automated play-tests (screen-space
+    // assertions); the simulation itself never reads the camera — movement is
+    // facing-relative.
+    G.camHeading = heading;
+    if (!G.worldToScreen) {
+      G.worldToScreen = (wx, wy) => {
+        projPoint.set(wx, 2, wy).project(camera);
+        return {
+          x: (projPoint.x * 0.5 + 0.5) * window.innerWidth,
+          y: (-projPoint.y * 0.5 + 0.5) * window.innerHeight,
+          behind: projPoint.z > 1,
+        };
+      };
+    }
     // The sun (and its shadow box) travels with the focus so shadows stay crisp and local.
     const f = focusOf(G);
     const sx = Math.round(f.x / 24) * 24, sz = Math.round(f.y / 24) * 24;

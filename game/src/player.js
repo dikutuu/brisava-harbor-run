@@ -14,18 +14,42 @@ export function createPlayer(x, y) {
     car: null, lastCar: null, money: 60, ammo: 12, reserve: 36,
     reloadFor: 0, reloadDone: false, fireFor: 0, meleeFor: 0, meleeSwing: 0,
     aimAngle: 0, recoil: 0, muzzleFor: 0, hurtFlash: 0, dead: null, walkPhase: 0, speedNow: 0,
+    moveBasis: null, // the facing latched at the latest movement keypress (see below)
   };
 }
 
 const WALK = 148, SPRINT = 238;
+const MOVE_CODES = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
 
 export function updatePlayerOnFoot(G, input, dt) {
   const p = G.player;
-  let mx = 0, my = 0;
-  if (input.keys.has('KeyW') || input.keys.has('ArrowUp')) my -= 1;
-  if (input.keys.has('KeyS') || input.keys.has('ArrowDown')) my += 1;
-  if (input.keys.has('KeyA') || input.keys.has('ArrowLeft')) mx -= 1;
-  if (input.keys.has('KeyD') || input.keys.has('ArrowRight')) mx += 1;
+  // Movement is relative to MARA, never to the camera and never to the map: the
+  // basis is her facing — where she last looked or walked. W runs the way she
+  // faces, S backs away from it, A/D strafe across it, identically in the CHASE,
+  // TOP and STREET cameras (they only watch; they never steer). WASD used to be
+  // locked to the world axes, so the same key pushed her a different way on
+  // screen every time she — or the camera — happened to turn.
+  let ix = 0, iy = 0;
+  if (input.keys.has('KeyW') || input.keys.has('ArrowUp')) iy -= 1;
+  if (input.keys.has('KeyS') || input.keys.has('ArrowDown')) iy += 1;
+  if (input.keys.has('KeyA') || input.keys.has('ArrowLeft')) ix -= 1;
+  if (input.keys.has('KeyD') || input.keys.has('ArrowRight')) ix += 1;
+  // While she aims (mouse held, anchor live) her facing IS the aim: sync it, so
+  // WASD strafes around the anchor and the facing she keeps afterwards is the aim.
+  const aiming = input.mouse.down || p.recoil > 0;
+  if (aiming) p.angle = p.aimAngle;
+  // The basis is LATCHED at each movement keypress — the facing at that moment —
+  // and held while the keys stay down. Latching matters: if the basis turned with
+  // her facing mid-hold, a strafe key would chase its own direction and she would
+  // run in a circle; latched, she runs straight and her facing settles onto the
+  // run. Aiming needs no latch: the anchor is the live facing, dragged by the mouse.
+  if (aiming || (ix === 0 && iy === 0)) p.moveBasis = null;
+  else if (p.moveBasis == null || MOVE_CODES.some((c) => input.pressed.has(c))) p.moveBasis = p.angle;
+  const basis = aiming ? p.angle : (p.moveBasis == null ? p.angle : p.moveBasis);
+  const fx = Math.cos(basis), fy = Math.sin(basis);
+  // Her right hand, in world terms: the facing vector turned a quarter-turn.
+  let mx = -fy * ix + fx * -iy;
+  let my = fx * ix + fy * -iy;
   const mag = Math.hypot(mx, my);
   const wantSprint = (input.keys.has('ShiftLeft') || input.keys.has('ShiftRight')) && mag > 0;
   if (wantSprint && p.stamina > 1) p.stamina = Math.max(0, p.stamina - 26 * dt);
@@ -37,7 +61,9 @@ export function updatePlayerOnFoot(G, input, dt) {
     speed = sprinting ? SPRINT : WALK;
     p.x += mx * speed * dt;
     p.y += my * speed * dt;
-    p.angle = angleLerp(p.angle, Math.atan2(my, mx), Math.min(1, 14 * dt));
+    // Walking turns her facing into the walk, so "last facing" keeps updating
+    // naturally; aiming pins the facing to the anchor instead (handled above).
+    if (!aiming) p.angle = angleLerp(p.angle, Math.atan2(my, mx), Math.min(1, 14 * dt));
     p.walkPhase += dt * (sprinting ? 13 : 10);
   }
   p.speedNow = speed;
