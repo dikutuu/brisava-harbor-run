@@ -1,134 +1,322 @@
-// Boot and the one loop: input is read every frame, the world advances in fixed 1/60 s steps
-// (several in a slow frame, none in a fast one), and the renderer paints what is there. The game
-// moves between four screens: title, play, paused and game over.
-//
-// ?seed=N fixes the falling pattern. ?shot=start|play|end (with &seed=N) stages that scene
-// instead of running the loop, paints it twice and sets window.__shotReady for a screenshot.
-import { BEST_KEY, LIVES, STEP } from './config.js';
-import { createRandom } from './random.js';
-import { createWorld, EVENT_HIT, EVENT_OVER } from './world.js';
-import { ACTION_CONFIRM, ACTION_PAUSE, createInput } from './input.js';
-import { createRenderer, SCREEN_OVER, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
+// Brisava: Harbor Run — boot and the one loop. The world advances in fixed 1/60 s steps
+// (several in a slow frame, none in a fast one, a capped accumulator so a stalled tab never
+// fast-forwards), input is read every frame, and the renderer paints what is there. This
+// module owns the mode machine (menu, play, pause, map, shop, busted/wasted, failed,
+// complete), the death/respawn rules, and the wiring between the systems.
+
+import { PLACES, buildWorld, createRng, pointBlocked } from './world.js';
+import { createAudio } from './audio.js';
+import { createPlayer, enterVehicle, exitVehicle, interactHint, tryInteract, updateCamera, updatePlayerDriving, updatePlayerOnFoot, updateShop, checkPlayerRoadkill } from './player.js';
+import { spawnVehicle, collideVehicles } from './vehicles.js';
+import { initTraffic, updateTraffic } from './traffic.js';
+import { initPeds, updatePeds } from './pedestrians.js';
+import { createPoliceState, reportCrime, updatePolice } from './police.js';
+import { updateBullets, updateGuards, updatePlayerWeapons } from './combat.js';
+import { createMissionsApi } from './missions.js';
+import { applySave, clearSave, hasSave, readSave, saveGame } from './save.js';
+import { drawWorld } from './render.js';
+import * as HUD from './hud.js';
 import { stageShot } from './shots.js';
 
-/** The longest frame the loop catches up on; a longer stall (a hidden tab) is dropped, not replayed. */
+const STEP = 1 / 60;
 const MAX_FRAME = 0.25;
 
 const params = new URLSearchParams(window.location.search);
-const shot = params.get('shot');
+const shotName = params.get('shot');
 const seedParam = Number.parseInt(params.get('seed') ?? '', 10);
-const seed = Number.isInteger(seedParam) ? seedParam : Math.floor(Math.random() * 4294967296);
 
 const canvas = document.getElementById('game');
-const status = document.getElementById('status');
-const world = createWorld(createRandom(seed));
-const renderer = createRenderer(canvas);
+const ctx = canvas.getContext('2d');
+const statusEl = document.getElementById('status');
 
-function readBest() {
-  try {
-    return Number.parseInt(window.localStorage.getItem(BEST_KEY) ?? '0', 10) || 0;
-  } catch {
-    return 0;
+window.__errors = [];
+window.addEventListener('error', (e) => {
+  window.__errors.push(String(e.message || e.error));
+  if (statusEl) statusEl.textContent = 'Error: ' + String(e.message || e.error);
+});
+
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+/* ---------- input ---------- */
+
+const input = {
+  keys: new Set(), pressed: new Set(),
+  mouse: { x: 0, y: 0, down: false, clicked: false },
+};
+window.addEventListener('keydown', (e) => {
+  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
+  if (!e.repeat) input.pressed.add(e.code);
+  input.keys.add(e.code);
+  G.audio.unlock();
+});
+window.addEventListener('keyup', (e) => input.keys.delete(e.code));
+window.addEventListener('blur', () => { input.keys.clear(); input.pressed.clear(); input.mouse.down = false; });
+canvas.addEventListener('mousemove', (e) => { input.mouse.x = e.clientX; input.mouse.y = e.clientY; });
+canvas.addEventListener('mousedown', (e) => {
+  input.mouse.down = true;
+  input.mouse.clicked = true;
+  G.audio.unlock();
+});
+window.addEventListener('mouseup', () => { input.mouse.down = false; });
+
+/* ---------- game state ---------- */
+
+buildWorld();
+
+const G = {
+  time: 0,
+  rng: createRng(Number.isInteger(seedParam) ? seedParam * 7919 + 11 : 987654321),
+  mode: 'menu',
+  menuFrom: 'menu',
+  camera: { x: PLACES.garage.x - 640, y: PLACES.garage.y - 360, w: canvas.width, h: canvas.height },
+  player: createPlayer(PLACES.playerStart.x, PLACES.playerStart.y),
+  vehicles: [], peds: [], guards: [], officers: [], bullets: [],
+  policeState: createPoliceState(),
+  upgrades: { turbo: false },
+  audio: createAudio(),
+  buttons: [],
+  input,
+  toast: '', toastAt: -99,
+  hintText: '',
+  shopOpen: false,
+  missionFailed: null,
+  deathPenalty: 0,
+  sideJobsDone: 0,
+  storyCompleteAt: 0,
+  completeShown: false,
+  deathAt: 0,
+  worldPointBlocked: pointBlocked,
+};
+G.missionsApi = createMissionsApi(G);
+G.policeReport = (kind, at) => reportCrime(G, kind, at);
+G.saveGame = (reason) => saveGame(G, reason);
+window.__brisava = G; // a handle for automated play-tests and the screenshot harness
+
+/** A fresh city population: ambient traffic, walkers, and a scatter of parked cars. */
+function populate() {
+  G.vehicles.length = 0; G.peds.length = 0; G.guards.length = 0; G.officers.length = 0; G.bullets.length = 0;
+  initTraffic(G);
+  initPeds(G);
+  const parked = [
+    ['sedan', 1200, 1900, 0.4], ['van', 2000, 1900, 0], ['sedan', 2900, 2000, -0.3],
+    ['coupe', 2700, 905, 0], ['sedan', 505, 2210, 0], ['van', 640, 1450, Math.PI],
+    ['sedan', 1750, 330, Math.PI / 2], ['coupe', 3350, 1500, -Math.PI / 2],
+  ];
+  for (const [cls, x, y, a] of parked) spawnVehicle(G, cls, x, y, a, 'parked');
+}
+
+function resetRun() {
+  G.player = createPlayer(PLACES.playerStart.x, PLACES.playerStart.y);
+  G.policeState = createPoliceState();
+  G.upgrades = { turbo: false };
+  G.missionsApi = createMissionsApi(G);
+  G.sideJobsDone = 0;
+  G.missionFailed = null;
+  G.shopOpen = false;
+  G.storyCompleteAt = 0;
+  G.completeShown = false;
+  populate();
+  G.camera.x = PLACES.garage.x - G.camera.w / 2;
+  G.camera.y = PLACES.garage.y - G.camera.h / 2;
+}
+
+function newGame() {
+  clearSave();
+  resetRun();
+  G.mode = 'play';
+  G.toast = "Mara's back in Brisava. Eli is waiting at the garage — follow the marker.";
+  G.toastAt = G.time;
+}
+
+function continueGame() {
+  const data = readSave();
+  if (!data) { newGame(); return; }
+  resetRun();
+  applySave(G, data);
+  G.mode = 'play';
+  G.toast = 'Welcome back to Brisava.';
+  G.toastAt = G.time;
+}
+
+/** Death or arrest: a fair money penalty, then a checkpoint retry or a safehouse wake-up. */
+function respawn() {
+  const p = G.player;
+  if (p.car) {
+    const v = p.car;
+    p.car = null;
+    v.driver = null; v.occupied = false;
+    if (v.kind === 'player') v.kind = 'parked';
+  }
+  p.dead = null;
+  G.audio.engine(0, false);
+  if (G.missionsApi.state.active) {
+    G.missionsApi.retryMission();
+  } else {
+    p.x = PLACES.safehouse.x; p.y = PLACES.safehouse.y;
+    p.hp = p.maxHp;
+    G.policeState.heat = 0;
+    G.policeState.mode = 'calm';
+    G.bullets.length = 0;
+  }
+  G.mode = 'play';
+}
+
+/* ---------- per-frame updates ---------- */
+
+function updateWorld(dt, withPlayer) {
+  G.time += dt;
+  updateTraffic(G, dt);
+  updatePeds(G, dt);
+  if (withPlayer) {
+    if (G.shopOpen) {
+      updateShop(G, input);
+    } else if (!G.player.dead) {
+      if (G.player.car) updatePlayerDriving(G, input, dt);
+      else {
+        updatePlayerOnFoot(G, input, dt);
+        updatePlayerWeapons(G, input, dt);
+      }
+      checkPlayerRoadkill(G);
+      if (input.pressed.has('KeyJ')) G.missionsApi.trySideJob();
+      G.missionsApi.update(dt);
+    }
+    collideVehicles(G, dt);
+    updateGuards(G, dt);
+    updateBullets(G, dt);
+    updatePolice(G, dt);
+    // Death sequence: a beat of stillness, then the verdict screen.
+    if (G.player.dead && !G.deathAt) {
+      G.deathAt = G.time;
+      const p = G.player;
+      G.deathPenalty = Math.min(p.money, Math.max(20, Math.floor(p.money * 0.12)));
+      p.money -= G.deathPenalty;
+      G.audio.engine(0, false);
+    }
+    if (G.player.dead && G.time - G.deathAt > 1.5) { G.deathAt = 0; G.mode = 'over'; }
+    if (!G.player.dead && G.missionFailed) G.mode = 'failed';
+    if (G.storyCompleteAt && !G.completeShown && G.time - G.storyCompleteAt > 1.4) {
+      G.completeShown = true;
+      G.mode = 'complete';
+    }
+    const ih = G.player.car ? interactHint(G) : (interactHint(G) || (G.time < 14 ? 'WASD move · Shift sprint · mouse aim, click to shoot · F melee · R reload · M map' : ''));
+    G.hintText = G.shopOpen ? '' : ih;
+    updateCamera(G, dt, canvas.width, canvas.height);
+  } else {
+    // Menu backdrop: the city lives on behind the title.
+    G.camera.x = 500 + Math.sin(G.time * 0.05) * 260;
+    G.camera.y = 1330 + Math.cos(G.time * 0.037) * 120;
+    G.camera.w = canvas.width; G.camera.h = canvas.height;
+  }
+  G.player.hurtFlash = Math.max(0, G.player.hurtFlash - dt);
+}
+
+function handleAction(action) {
+  const audio = G.audio;
+  switch (action) {
+    case 'new': newGame(); break;
+    case 'continue': continueGame(); break;
+    case 'controls': G.menuFrom = G.mode; G.mode = 'controls'; break;
+    case 'audio': G.menuFrom = G.mode; G.mode = 'audio'; break;
+    case 'back': G.mode = G.menuFrom === 'pause' ? 'pause' : 'menu'; break;
+    case 'resume': G.mode = 'play'; break;
+    case 'restart': G.missionFailed = null; G.missionsApi.retryMission(); G.mode = 'play'; break;
+    case 'retry-mission': G.missionFailed = null; G.missionsApi.retryMission(); G.mode = 'play'; break;
+    case 'menu': G.mode = 'menu'; break;
+    case 'respawn': respawn(); break;
+    case 'freeroam': G.mode = 'play'; break;
+    case 'vol-up': audio.setVolume(audio.settings.volume + 0.1); audio.click(); break;
+    case 'vol-down': audio.setVolume(audio.settings.volume - 0.1); audio.click(); break;
+    case 'mute': audio.setMuted(!audio.settings.muted); break;
+    default: break;
   }
 }
 
-function saveBest(value) {
-  try {
-    window.localStorage.setItem(BEST_KEY, String(value));
-  } catch {
-    // Storage can be off (private windows): the best score then lasts this visit only.
+function handleKeys() {
+  if (input.mouse.clicked) {
+    for (const b of G.buttons) {
+      if (input.mouse.x >= b.x && input.mouse.x <= b.x + b.w && input.mouse.y >= b.y && input.mouse.y <= b.y + b.h) {
+        handleAction(b.action);
+        break;
+      }
+    }
+  }
+  if (G.mode === 'play') {
+    if (input.pressed.has('Escape')) {
+      if (G.shopOpen) G.shopOpen = false;
+      else G.mode = 'pause';
+    } else if (input.pressed.has('KeyM')) G.mode = 'map';
+  } else if (G.mode === 'map') {
+    if (input.pressed.has('KeyM') || input.pressed.has('Escape')) G.mode = 'play';
+  } else if (G.mode === 'pause') {
+    if (input.pressed.has('Escape')) G.mode = 'play';
+  } else if (G.mode === 'controls' || G.mode === 'audio') {
+    if (input.pressed.has('Escape')) handleAction('back');
+  } else if (G.mode === 'menu') {
+    if (input.pressed.has('Enter')) newGame();
   }
 }
 
-function runShot(name) {
-  const scene = stageShot(name, world);
+function draw() {
+  G.buttons = [];
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawWorld(ctx, G);
+  const w = canvas.width, h = canvas.height;
+  if (G.mode === 'play' || G.mode === 'map') {
+    HUD.drawHUD(ctx, G, w, h);
+    if (G.shopOpen) HUD.drawShop(ctx, G, w, h);
+    if (G.mode === 'map') HUD.drawBigMap(ctx, G, w, h);
+  } else if (G.mode === 'menu') HUD.drawMenu(ctx, G, w, h, hasSave());
+  else if (G.mode === 'pause') { HUD.drawHUD(ctx, G, w, h); HUD.drawPause(ctx, G, w, h); }
+  else if (G.mode === 'controls') HUD.drawControls(ctx, G, w, h);
+  else if (G.mode === 'audio') HUD.drawAudio(ctx, G, w, h);
+  else if (G.mode === 'over') HUD.drawOver(ctx, G, w, h);
+  else if (G.mode === 'failed') { HUD.drawHUD(ctx, G, w, h); HUD.drawFailed(ctx, G, w, h); }
+  else if (G.mode === 'complete') HUD.drawComplete(ctx, G, w, h);
+}
+
+/* ---------- boot ---------- */
+
+populate();
+
+if (shotName) {
+  resetRun();
+  stageShot(shotName, G, {
+    newGameSituation: () => { G.mode = 'play'; },
+    updateWorld: (dt) => updateWorld(dt, true),
+    draw: () => draw(),
+  });
   let painted = 0;
-  function paint() {
-    renderer.draw(world.state, scene.screen, scene.best);
+  const paint = () => {
+    draw();
     painted += 1;
     if (painted < 2) requestAnimationFrame(paint);
-    else window.__shotReady = true;
-  }
+    else { window.__shotReady = true; if (statusEl) statusEl.textContent = 'shot ready: ' + shotName; }
+  };
   requestAnimationFrame(paint);
-}
-
-function runGame() {
-  const input = createInput(canvas);
-  let screen = SCREEN_TITLE;
-  let best = readBest();
+} else {
   let accumulator = 0;
   let last = performance.now();
-
-  // Screen readers (and anyone watching the page's text) hear the screen changes and each hit.
-  function announce(message) {
-    status.textContent = message;
-  }
-
-  function startGame() {
-    world.reset();
-    accumulator = 0;
-    screen = SCREEN_PLAY;
-    announce(`Playing. ${LIVES} lives.`);
-  }
-
-  function endGame() {
-    screen = SCREEN_OVER;
-    if (world.state.score > best) {
-      best = world.state.score;
-      saveBest(best);
-    }
-    announce(`Game over. Score ${world.state.score}. Best ${best}.`);
-  }
-
-  function handleActions() {
-    const actions = input.takeActions();
-    if (actions & ACTION_CONFIRM && (screen === SCREEN_TITLE || screen === SCREEN_OVER)) startGame();
-    else if (actions & ACTION_PAUSE && screen === SCREEN_PLAY) {
-      screen = SCREEN_PAUSED;
-      announce('Paused.');
-    } else if (actions & (ACTION_PAUSE | ACTION_CONFIRM) && screen === SCREEN_PAUSED) {
-      screen = SCREEN_PLAY;
-      announce('Playing.');
-    }
-  }
-
-  function step() {
-    if (screen === SCREEN_TITLE) {
-      world.step(STEP, 0, true);
-      return;
-    }
-    const events = world.step(STEP, input.direction(), false);
-    if (events & EVENT_OVER) endGame();
-    else if (events & EVENT_HIT) announce(world.state.lives === 1 ? 'Hit. 1 life left.' : `Hit. ${world.state.lives} lives left.`);
-  }
-
   function frame(now) {
     requestAnimationFrame(frame);
     accumulator += Math.min((now - last) / 1000, MAX_FRAME);
     last = now;
-    handleActions();
-    if (screen === SCREEN_TITLE || screen === SCREEN_PLAY) {
-      while (accumulator >= STEP && (screen === SCREEN_TITLE || screen === SCREEN_PLAY)) {
-        step();
+    handleKeys();
+    if (G.mode === 'play' || G.mode === 'menu') {
+      while (accumulator >= STEP) {
+        updateWorld(STEP, G.mode === 'play');
         accumulator -= STEP;
       }
-    } else {
-      accumulator = 0;
-    }
-    renderer.draw(world.state, screen, best);
+    } else accumulator = 0;
+    draw();
+    input.pressed.clear();
+    input.mouse.clicked = false;
   }
-
-  // Leaving the tab pauses a running game rather than letting blocks fall unseen.
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden && screen === SCREEN_PLAY) {
-      screen = SCREEN_PAUSED;
-      announce('Paused.');
-    }
-  });
-
-  announce('Block Dodger. Press Space or click to start.');
   requestAnimationFrame(frame);
 }
 
-if (shot) runShot(shot);
-else runGame();
+export { G, enterVehicle, exitVehicle };
