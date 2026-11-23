@@ -83,6 +83,16 @@ function districtName(G) {
 
 export function drawHUD(ctx, G, w, h) {
   const p = G.player;
+  // Camera mode, top left (3D view only): which of Chase / Top / Street is live, and its key.
+  if (G.viewMode) {
+    ctx.font = '600 12.5px system-ui, sans-serif';
+    const label = `CAMERA: ${G.viewMode} (C)`;
+    const lw = ctx.measureText(label).width + 22;
+    panel(ctx, 16, 14, lw, 26, 0.5);
+    ctx.fillStyle = '#f2ead8';
+    ctx.textAlign = 'left';
+    ctx.fillText(label, 27, 31);
+  }
   // Objective, top centre, with the distance to its marker.
   const objective = G.missionsApi.objectiveText();
   ctx.font = '600 16px system-ui, sans-serif';
@@ -243,6 +253,8 @@ export function drawMenu(ctx, G, w, h, hasSaveGame) {
   ctx.fillStyle = 'rgba(242,234,216,0.8)';
   ctx.font = '14px system-ui, sans-serif';
   ctx.fillText('Mara Venn drives for Eli Rook. Meridian Quay rigs the port. Time to even the books.', w / 2, y + 26);
+  ctx.fillStyle = 'rgba(255,233,168,0.9)';
+  ctx.fillText('Now in 3D — press C for Chase / Top / Street cameras. A friendly story: generous timers, gentle guards, made to be finished.', w / 2, y + 50);
 }
 
 export function drawPause(ctx, G, w, h) {
@@ -265,21 +277,26 @@ export function drawControls(ctx, G, w, h) {
   const rows = [
     ['WASD / Arrows', 'Move · drive'],
     ['Shift', 'Sprint (stamina)'],
-    ['Mouse + Click', 'Aim and shoot'],
+    ['Mouse', 'Aim — hold + drag to move the aim anchor · click / hold to shoot'],
     ['F', 'Melee'], ['R', 'Reload'],
     ['E', 'Interact · enter / exit a car · take a job'],
+    ['C', 'Camera: Chase / Top / Street (3D view)'],
     ['Space', 'Handbrake (in a car)'], ['H', 'Horn'],
     ['B', 'Garage shop (at the counter)'], ['J', 'Delivery job (at the garage)'],
     ['M', 'City map'], ['Esc', 'Pause'],
   ];
   ctx.font = '600 16.5px system-ui, sans-serif';
-  let y = 236;
+  let y = 226;
   for (const [k, v] of rows) {
     ctx.fillStyle = '#ffd34d'; ctx.textAlign = 'right'; ctx.fillText(k, w / 2 - 16, y);
     ctx.fillStyle = '#f2ead8'; ctx.textAlign = 'left'; ctx.fillText(v, w / 2 + 16, y);
-    y += 30;
+    y += 29;
   }
-  button(ctx, G, (w - 220) / 2, y + 14, 220, 48, 'Back', 'back');
+  ctx.fillStyle = 'rgba(255,233,168,0.9)';
+  ctx.font = '600 14.5px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('The story is tuned to be friendly — big targets, a long clock, soft-hearted guards.', w / 2, y + 12);
+  button(ctx, G, (w - 220) / 2, y + 26, 220, 48, 'Back', 'back');
 }
 
 export function drawAudio(ctx, G, w, h) {

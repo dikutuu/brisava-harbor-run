@@ -13,7 +13,7 @@ export function createPlayer(x, y) {
     x, y, angle: -Math.PI / 2, hp: 100, maxHp: 100, stamina: 100,
     car: null, lastCar: null, money: 60, ammo: 12, reserve: 36,
     reloadFor: 0, reloadDone: false, fireFor: 0, meleeFor: 0, meleeSwing: 0,
-    aimAngle: 0, recoil: 0, hurtFlash: 0, dead: null, walkPhase: 0, speedNow: 0,
+    aimAngle: 0, recoil: 0, muzzleFor: 0, hurtFlash: 0, dead: null, walkPhase: 0, speedNow: 0,
   };
 }
 

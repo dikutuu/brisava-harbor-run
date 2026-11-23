@@ -29,31 +29,34 @@ function trafficNear(G, x, y, count) {
     v.y = y;
     v.angle = 0; // eastbound, same direction as the chase
     v.speed = 110;
-    v.ai = null; // traffic update rebuilds a route from here
+    // A real route along the promenade (allHRoads index 4): a bare ai=null would make the
+    // traffic update rebuild the route on a default road and teleport the car away.
+    v.ai = { axis: 'h', index: 4, dir: 1, target: 2080, speed: 110, stuckFor: 0, waitFor: 0 };
     placed += 1;
     if (placed >= count) break;
   }
 }
 
-/** Sunline Coast chase: Mara in Eli's sedan, two cruisers behind her, traffic ahead. */
+/** Sunline Coast chase: Mara in Eli's sedan on the promenade itself, two cruisers behind
+    her, traffic ahead, the sea filling the right of the frame in the 3D chase view. */
 function stageChase(G, api) {
   G.missionsApi.startMission(0);
   const sedan = G.missionsApi.state.active.data.car;
   G.player.x = PLACES.garage.doorX; G.player.y = PLACES.garage.doorY + 14;
   run(api, 0.25); // step 1: she has met Eli
-  sedan.x = 980; sedan.y = 2103; sedan.angle = 0; // the eastbound lane of the coast road
-  G.player.x = 980; G.player.y = 2103;
+  sedan.x = 980; sedan.y = 2252; sedan.angle = 0; // the eastbound lane of the promenade
+  G.player.x = 980; G.player.y = 2252;
   enterVehicle(G, sedan);
   run(api, 0.2); // step 2 completes: the delivery is the live objective now
-  trafficNear(G, 1700, 2103, 3); // traffic ahead in the same lane, far enough to catch the chase, not the crash
-  for (const p of G.peds) { // keep the coast road clear: strollers belong on the promenade
-    if (p.x > 300 && p.x < 2000 && p.y > 1960 && p.y < 2200) { p.y = 2300; p.x += 40; }
+  trafficNear(G, 1700, 2264, 3); // traffic ahead in the same lane, far enough to catch the chase, not the crash
+  for (const p of G.peds) { // keep the promenade clear: strollers belong on its south edge
+    if (p.x > 300 && p.x < 2000 && p.y > 2080 && p.y < 2340) { p.y = 2300; p.x += 40; }
   }
   setWantedLevel(G, 2);
   run(api, 0.3); // the fleet spawns off-camera…
   for (const v of G.vehicles) { // …and is pulled into frame behind Mara, still driven by police AI
     if (v.kind !== 'police') continue;
-    v.x = 730 + G.rng() * 30; v.y = 2086 + (v.id % 2) * 34;
+    v.x = 730 + G.rng() * 30; v.y = 2228 + (v.id % 2) * 34;
     v.angle = 0; v.ai.wp = null;
   }
   G.policeState.heat = 45; // mid-band for level 2, so a moment's lost eye contact can't cool it to 1
@@ -94,6 +97,16 @@ function stageHarbor(G, api) {
   run(api, 0.5); // she fires back — tracers, recoil, return fire
   G.input.mouse.down = false;
   run(api, 0.25);
+  // Freeze the firing feedback into the still: a fresh muzzle flash and one tracer
+  // mid-flight toward her aim, so the captured frame itself shows the shot.
+  const p = G.player;
+  p.muzzleFor = 0.055;
+  p.recoil = 1;
+  G.bullets.push({
+    x: p.x + Math.cos(p.aimAngle) * 64, y: p.y + Math.sin(p.aimAngle) * 64,
+    vx: Math.cos(p.aimAngle) * 640, vy: Math.sin(p.aimAngle) * 640,
+    life: 0.85, from: 'player', dmg: 17,
+  });
 }
 
 /** Ridgeview: mid-circuit in the Coastline race, money up, a genuine save firing its toast. */
@@ -109,7 +122,7 @@ function stageRidgeview(G, api) {
     car.x = cx; car.y = cy;
     run(api, 0.12);
   }
-  car.x = 3270; car.y = 1750; car.angle = -Math.PI / 2; car.speed = 190;
+  car.x = 3270; car.y = 1860; car.angle = -Math.PI / 2; car.speed = 190;
   G.player.money += 260;
   for (const v of G.vehicles) { if (v.kind === 'police') { v.x = 400; v.y = 400; } } // no cruisers in this frame
   G.policeState.heat = 0; G.policeState.mode = 'calm'; G.policeState.seen = false;

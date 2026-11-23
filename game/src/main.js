@@ -15,6 +15,7 @@ import { updateBullets, updateGuards, updatePlayerWeapons } from './combat.js';
 import { createMissionsApi } from './missions.js';
 import { applySave, clearSave, hasSave, readSave, saveGame } from './save.js';
 import { drawWorld } from './render.js';
+import { createRenderer3D } from './render3d.js';
 import * as HUD from './hud.js';
 import { stageShot } from './shots.js';
 
@@ -29,6 +30,12 @@ const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const statusEl = document.getElementById('status');
 
+// The 3D view renders the world on the WebGL canvas under the HUD overlay. If WebGL is
+// unavailable the game quietly keeps the original 2D renderer — same simulation either way.
+// It is created after buildWorld() below, because it builds its static city from the
+// world's building data; the declaration lives here so resize() can already see it.
+let renderer3d = null;
+
 window.__errors = [];
 window.addEventListener('error', (e) => {
   window.__errors.push(String(e.message || e.error));
@@ -38,6 +45,7 @@ window.addEventListener('error', (e) => {
 function resize() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
+  if (renderer3d) renderer3d.resize(window.innerWidth, window.innerHeight);
 }
 window.addEventListener('resize', resize);
 resize();
@@ -56,8 +64,13 @@ window.addEventListener('keydown', (e) => {
 });
 window.addEventListener('keyup', (e) => input.keys.delete(e.code));
 window.addEventListener('blur', () => { input.keys.clear(); input.pressed.clear(); input.mouse.down = false; });
-canvas.addEventListener('mousemove', (e) => { input.mouse.x = e.clientX; input.mouse.y = e.clientY; });
-canvas.addEventListener('mousedown', (e) => {
+// Mouse input is heard on the window, not one canvas: after the WebGL/HUD canvas split
+// no stacking or overlay quirk can swallow a press before it reaches the game.
+window.addEventListener('mousemove', (e) => { input.mouse.x = e.clientX; input.mouse.y = e.clientY; });
+window.addEventListener('mousedown', (e) => {
+  if (e.button !== 0) return;
+  input.mouse.x = e.clientX;
+  input.mouse.y = e.clientY;
   input.mouse.down = true;
   input.mouse.clicked = true;
   G.audio.unlock();
@@ -67,6 +80,14 @@ window.addEventListener('mouseup', () => { input.mouse.down = false; });
 /* ---------- game state ---------- */
 
 buildWorld();
+
+try {
+  renderer3d = createRenderer3D(document.getElementById('gl'));
+  renderer3d.resize(window.innerWidth, window.innerHeight);
+} catch (err) {
+  renderer3d = null;
+  console.warn('brisava: WebGL unavailable, using the 2D renderer.', err);
+}
 
 const G = {
   time: 0,
@@ -83,6 +104,9 @@ const G = {
   input,
   toast: '', toastAt: -99,
   hintText: '',
+  frameDt: 1 / 30,
+  aimWorld: null,
+  viewMode: null,
   shopOpen: false,
   missionFailed: null,
   deathPenalty: 0,
@@ -203,7 +227,7 @@ function updateWorld(dt, withPlayer) {
       G.completeShown = true;
       G.mode = 'complete';
     }
-    const ih = G.player.car ? interactHint(G) : (interactHint(G) || (G.time < 14 ? 'WASD move · Shift sprint · mouse aim, click to shoot · F melee · R reload · M map' : ''));
+    const ih = G.player.car ? interactHint(G) : (interactHint(G) || (G.time < 14 ? 'WASD move · Shift sprint · mouse aim — hold + drag to aim · click to shoot · F melee · R reload · M map' : ''));
     G.hintText = G.shopOpen ? '' : ih;
     updateCamera(G, dt, canvas.width, canvas.height);
   } else {
@@ -216,6 +240,12 @@ function updateWorld(dt, withPlayer) {
 }
 
 function handleAction(action) {
+  // A menu click must never become the first shot of a run: entering play clears the
+  // latched click (and the held state) so firing starts on the player's own press.
+  if (action === 'new' || action === 'continue' || action === 'resume') {
+    input.mouse.clicked = false;
+    input.mouse.down = false;
+  }
   const audio = G.audio;
   switch (action) {
     case 'new': newGame(); break;
@@ -250,6 +280,12 @@ function handleKeys() {
       if (G.shopOpen) G.shopOpen = false;
       else G.mode = 'pause';
     } else if (input.pressed.has('KeyM')) G.mode = 'map';
+    else if (input.pressed.has('KeyC') && renderer3d) {
+      renderer3d.cycle();
+      G.toast = `Camera: ${renderer3d.label()}`;
+      G.toastAt = G.time;
+      G.audio.click();
+    }
   } else if (G.mode === 'map') {
     if (input.pressed.has('KeyM') || input.pressed.has('Escape')) G.mode = 'play';
   } else if (G.mode === 'pause') {
@@ -264,7 +300,13 @@ function handleKeys() {
 function draw() {
   G.buttons = [];
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  drawWorld(ctx, G);
+  if (renderer3d) {
+    renderer3d.render(G, G.frameDt);
+    G.viewMode = renderer3d.label();
+  } else {
+    drawWorld(ctx, G);
+    G.viewMode = null;
+  }
   const w = canvas.width, h = canvas.height;
   if (G.mode === 'play' || G.mode === 'map') {
     HUD.drawHUD(ctx, G, w, h);
@@ -285,11 +327,16 @@ populate();
 
 if (shotName) {
   resetRun();
+  if (renderer3d) {
+    renderer3d.setMode(params.get('cam') || 'chase');
+    renderer3d.snap(); // a still frame has no time to glide: start on the staged camera
+  }
   stageShot(shotName, G, {
     newGameSituation: () => { G.mode = 'play'; },
     updateWorld: (dt) => updateWorld(dt, true),
     draw: () => draw(),
   });
+  if (renderer3d) renderer3d.snap(G); // compose the still on the staged state, heading included
   let painted = 0;
   const paint = () => {
     draw();
@@ -303,13 +350,20 @@ if (shotName) {
   let last = performance.now();
   function frame(now) {
     requestAnimationFrame(frame);
-    accumulator += Math.min((now - last) / 1000, MAX_FRAME);
+    const dt = Math.min((now - last) / 1000, MAX_FRAME);
+    G.frameDt = dt;
+    accumulator += dt;
     last = now;
     handleKeys();
     if (G.mode === 'play' || G.mode === 'menu') {
       while (accumulator >= STEP) {
         updateWorld(STEP, G.mode === 'play');
         accumulator -= STEP;
+        // A press is ONE action: only the first fixed step of a frame may consume it.
+        // Clearing here stops a hitched frame (several steps per rAF) from buying a
+        // whole shelf in one shop tap or entering and instantly exiting a car on E.
+        input.pressed.clear();
+        input.mouse.clicked = false;
       }
     } else accumulator = 0;
     draw();

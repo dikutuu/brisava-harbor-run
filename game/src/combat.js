@@ -11,7 +11,7 @@ export const MAG_SIZE = 12;
 /** A mission guard: stands a post until alerted, then closes in and shoots. */
 export function spawnGuard(G, x, y, opts = {}) {
   const g = {
-    x, y, angle: opts.angle || 0, hp: 34, maxHp: 34, state: opts.alert ? 'chase' : 'idle',
+    x, y, angle: opts.angle || 0, hp: 26, maxHp: 26, state: opts.alert ? 'chase' : 'idle',
     post: { x, y }, shootAt: 0, phase: G.rng() * 6.28, missionTag: opts.missionTag || null,
     speed: 0, hitFlash: 0,
   };
@@ -31,9 +31,29 @@ export function updatePlayerWeapons(G, input, dt) {
   p.fireFor = Math.max(0, p.fireFor - dt);
   p.meleeFor = Math.max(0, p.meleeFor - dt);
   if (input.pressed.has('KeyR') && p.reloadFor <= 0 && p.ammo < MAG_SIZE && p.reserve > 0) startReload(G);
-  const wx = G.camera.x + input.mouse.x, wy = G.camera.y + input.mouse.y;
-  p.aimAngle = Math.atan2(wy - p.y, wx - p.x);
-  if (input.mouse.down && p.fireFor <= 0 && p.reloadFor <= 0) {
+  // Aim anchor: a persistent world point the weapon and Mara's facing track. The
+  // pointer's ground point (raycast in the 3D view, flat-camera unprojection in 2D)
+  // moves the anchor whenever the pointer moves — and holding the button and dragging
+  // drags the anchor with it. Between moves the anchor stays where it was left.
+  // The 3D view publishes its raycast one frame after the pointer moves, tagged with
+  // the screen point it belongs to; the anchor keys off THAT tag, so it always lands
+  // on the current pointer position instead of trailing one move behind it.
+  const useAim = !!(G.aimWorld && typeof G.aimWorld.sx === 'number');
+  const wx = useAim ? G.aimWorld.x : G.camera.x + input.mouse.x;
+  const wy = useAim ? G.aimWorld.y : G.camera.y + input.mouse.y;
+  const pointerSx = useAim ? G.aimWorld.sx : input.mouse.x;
+  const pointerSy = useAim ? G.aimWorld.sy : input.mouse.y;
+  if (!G.aimAnchor) G.aimAnchor = { x: wx, y: wy, sx: -1, sy: -1 };
+  const anchor = G.aimAnchor;
+  if (input.mouse.down || pointerSx !== anchor.sx || pointerSy !== anchor.sy) {
+    anchor.x = wx; anchor.y = wy;
+  }
+  anchor.sx = pointerSx; anchor.sy = pointerSy;
+  p.aimAngle = Math.atan2(anchor.y - p.y, anchor.x - p.x);
+  p.muzzleFor = Math.max(0, p.muzzleFor - dt);
+  // Trigger: the held button, or the per-frame click latch — a quick press that starts
+  // and ends between two frames still fires once, so a click is never swallowed.
+  if ((input.mouse.down || input.mouse.clicked) && p.fireFor <= 0 && p.reloadFor <= 0) {
     if (p.ammo <= 0) {
       G.audio.dryFire();
       p.fireFor = 0.3;
@@ -48,6 +68,7 @@ export function updatePlayerWeapons(G, input, dt) {
       scarePeds(G, p.x, p.y, 300);
       G.policeReport('gunshot');
       p.recoil = 1;
+      p.muzzleFor = 0.055;
     }
   }
   if (input.pressed.has('KeyF') && p.meleeFor <= 0) {
@@ -107,7 +128,7 @@ export function updateGuards(G, dt) {
     g.phase += dt * (g.speed > 0 ? 10 : 2);
     const target = p.car ? p.car : p;
     const d = dist(g.x, g.y, target.x, target.y);
-    const sees = d < 250 && !lineOfSightBlocked(g.x, g.y, target.x, target.y);
+    const sees = d < 235 && !lineOfSightBlocked(g.x, g.y, target.x, target.y);
     if (g.state === 'idle' && sees && !p.dead) g.state = 'chase';
     // Leash: a guard who has been dragged far from his post, or left far behind, gives up
     // and drifts back — otherwise one alerted guard would hunt Mara across the whole map
@@ -117,9 +138,9 @@ export function updateGuards(G, dt) {
       const want = Math.atan2(target.y - g.y, target.x - g.x);
       g.angle = angleLerp(g.angle, want, Math.min(1, 8 * dt));
       if (d > 132) {
-        g.x += Math.cos(want) * 128 * dt;
-        g.y += Math.sin(want) * 128 * dt;
-        g.speed = 128;
+        g.x += Math.cos(want) * 112 * dt;
+        g.y += Math.sin(want) * 112 * dt;
+        g.speed = 112;
       } else if (d < 84) {
         g.x -= Math.cos(want) * 80 * dt;
         g.y -= Math.sin(want) * 80 * dt;
@@ -127,10 +148,10 @@ export function updateGuards(G, dt) {
       } else g.speed = 0;
       collideCircle(g, 10);
       g.shootAt -= dt;
-      if (sees && d < 240 && g.shootAt <= 0) {
-        g.shootAt = 1.05 + G.rng() * 0.5;
-        const a = want + (G.rng() - 0.5) * 0.16;
-        G.bullets.push({ x: g.x + Math.cos(want) * 15, y: g.y + Math.sin(want) * 15, vx: Math.cos(a) * 540, vy: Math.sin(a) * 540, life: 0.7, from: 'guard', dmg: 7 });
+      if (sees && d < 230 && g.shootAt <= 0) {
+        g.shootAt = 1.5 + G.rng() * 0.7;
+        const a = want + (G.rng() - 0.5) * 0.27;
+        G.bullets.push({ x: g.x + Math.cos(want) * 15, y: g.y + Math.sin(want) * 15, vx: Math.cos(a) * 500, vy: Math.sin(a) * 500, life: 0.7, from: 'guard', dmg: 5 });
         G.audio.gunshot();
       }
     } else {
@@ -184,11 +205,12 @@ export function updateBullets(G, dt) {
   p.meleeSwing = Math.max(0, (p.meleeSwing || 0) - dt * 3);
 }
 
-/** Damage to Mara, with a fair floor of knockback-free fairness: death is handled by main. */
+/** Damage to Mara, softened by a quarter across the board (the story is tuned friendly:
+    guards, traffic and trouble all hurt less than they used to). Death is handled by main. */
 export function hurtPlayer(G, dmg) {
   const p = G.player;
   if (p.dead) return;
-  p.hp -= dmg;
+  p.hp -= Math.max(1, Math.round(dmg * 0.75));
   p.hurtFlash = 0.25;
   G.audio.hit();
   if (p.hp <= 0) {

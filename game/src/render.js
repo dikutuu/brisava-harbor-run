@@ -247,6 +247,23 @@ export function drawWorld(ctx, G) {
     ctx.lineTo(b.x, b.y);
   }
   ctx.stroke();
+  // Muzzle flash while the shot is fresh.
+  if (!G.player.car && !G.player.dead && G.player.muzzleFor > 0) {
+    const p = G.player;
+    const fx = p.x + Math.cos(p.aimAngle) * 21, fy = p.y + Math.sin(p.aimAngle) * 21;
+    ctx.fillStyle = 'rgba(255,205,110,0.85)';
+    ctx.beginPath(); ctx.arc(fx, fy, 8, 0, 6.29); ctx.fill();
+    ctx.fillStyle = '#fff6da';
+    ctx.beginPath(); ctx.arc(fx, fy, 3.6, 0, 6.29); ctx.fill();
+  }
+  // The aim anchor: a clear amber reticle at the world point the weapon tracks.
+  if (G.aimAnchor && !G.player.car && !G.player.dead) {
+    const a = G.aimAnchor;
+    ctx.strokeStyle = 'rgba(255,200,97,0.95)'; ctx.lineWidth = 2.4;
+    ctx.beginPath(); ctx.arc(a.x, a.y, 11, 0, 6.29); ctx.stroke();
+    ctx.fillStyle = '#ffc861';
+    ctx.beginPath(); ctx.arc(a.x, a.y, 2.6, 0, 6.29); ctx.fill();
+  }
   // The ledger, while Market Pressure is at the grab step.
   const active = G.missionsApi.state.active;
   if (active && active.def.id === 'm3' && active.stepIndex === 1) {

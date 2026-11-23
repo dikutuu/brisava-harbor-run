@@ -1,19 +1,24 @@
-/* Brisava: Harbor Run — the page around the canvas. The game itself is all canvas-drawn;
-   this only makes the canvas fill the window on a warm dark backdrop and keeps the
-   screen-reader status line available but invisible. */
+/* Brisava: Harbor Run — the page around the canvases. Two layers fill the window: the
+   WebGL canvas (#gl) paints the 3D city, and the 2D canvas (#game) sits on top of it,
+   transparent, carrying the HUD, menus and prompts (and receiving the mouse). If WebGL
+   is unavailable the 2D canvas paints the flat city itself, exactly as before. */
 html, body {
   margin: 0;
   height: 100%;
   overflow: hidden;
   background: #14202b;
 }
-#game {
+#gl, #game {
   position: fixed;
   inset: 0;
   width: 100%;
   height: 100%;
   display: block;
   touch-action: none;
+}
+#gl { z-index: 0; }
+#game {
+  z-index: 1;
   cursor: crosshair;
 }
 /* Read aloud, never shown: the status line screen readers announce. */

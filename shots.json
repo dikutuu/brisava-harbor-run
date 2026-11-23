@@ -1,1 +1,1 @@
-[{"name":"01-cover-chase.jpg","query":"?shot=chase&seed=1"},{"name":"02-street-life.jpg","query":"?shot=street&seed=1"},{"name":"03-harbor-mission.jpg","query":"?shot=harbor&seed=1"},{"name":"04-ridgeview-run.jpg","query":"?shot=ridgeview&seed=1"}]
+[{"name":"01-cover-chase.jpg","query":"?shot=chase&seed=1&cam=chase"},{"name":"02-street-life.jpg","query":"?shot=street&seed=1&cam=street"},{"name":"03-harbor-mission.jpg","query":"?shot=harbor&seed=1&cam=chase"},{"name":"04-ridgeview-run.jpg","query":"?shot=ridgeview&seed=1&cam=chase"}]

@@ -1,6 +1,8 @@
 // The story of Brisava in six jobs, plus the engine that runs them. Missions are data: an
 // ordered list of steps, each with HUD text, a map marker, and an update that reports done or
-// failed. The engine handles the lifecycle — available at Eli's garage door, active, completed
+// failed. The tuning is deliberately friendly — generous trigger radii, a long clock on the
+// circuit, few and soft-hearted guards — so a casual player finishes the story. The engine
+// handles the lifecycle — available at Eli's garage door, active, completed
 // (reward, chime, autosave), failed (retry from a checkpoint that restores the mission's
 // entities and a fair minimum of health, ammo and money, so a failed job can never soft-lock
 // the run). A repeatable delivery side job reuses the same reach-a-point machinery.
@@ -37,7 +39,7 @@ function checkpoints(rawPoints, seconds, label) {
       run.data.left -= dt;
       if (run.data.left <= 0) { run.failReason = 'Out of time. The circuit is reset — try again.'; return 'fail'; }
       const pt = points[run.data.i];
-      if (dist(G.player.car.x, G.player.car.y, pt.x, pt.y) < 98) {
+      if (dist(G.player.car.x, G.player.car.y, pt.x, pt.y) < 130) {
         run.data.i += 1;
         G.audio.pickup();
         if (run.data.i >= points.length) return 'done';
@@ -62,10 +64,10 @@ const MISSIONS = [
     },
     steps: [
       { text: 'Meet Eli at the garage', marker: { x: PLACES.garage.doorX, y: PLACES.garage.doorY },
-        update: (G) => dist(G.player.x, G.player.y, PLACES.garage.doorX, PLACES.garage.doorY) < 95 ? 'done' : null },
+        update: (G) => dist(G.player.x, G.player.y, PLACES.garage.doorX, PLACES.garage.doorY) < 120 ? 'done' : null },
       { text: "Take Eli's sedan (E at the door)", marker: (run) => ({ x: run.data.car.x, y: run.data.car.y }),
         update: (G, run) => G.player.car === run.data.car ? 'done' : null },
-      reach(3180, 880, 85, 'Deliver the package to the Ridgeview address', { inCar: true }),
+      reach(3180, 880, 120, 'Deliver the package to the Ridgeview address', { inCar: true }),
     ],
   },
   {
@@ -88,13 +90,13 @@ const MISSIONS = [
     },
     steps: [
       { text: 'Find the Vela Coupe in Old Mercado', marker: (run) => ({ x: run.data.car.x, y: run.data.car.y }),
-        update: (G, run) => dist(G.player.x, G.player.y, run.data.car.x, run.data.car.y) < 75 ? 'done' : null },
+        update: (G, run) => dist(G.player.x, G.player.y, run.data.car.x, run.data.car.y) < 110 ? 'done' : null },
       { text: 'Steal the coupe (E)', marker: (run) => ({ x: run.data.car.x, y: run.data.car.y }),
         update: (G, run) => G.player.car === run.data.car ? 'done' : null },
       { text: "Bring the coupe to Eli's garage", marker: { x: PLACES.garage.x, y: PLACES.garage.y },
         update: (G, run) => {
           if (run.data.car.wrecked) { run.failReason = 'The coupe is wrecked. Eli wanted a car, not a sculpture.'; return 'fail'; }
-          return dist(run.data.car.x, run.data.car.y, PLACES.garage.x, PLACES.garage.y) < 95 ? 'done' : null;
+          return dist(run.data.car.x, run.data.car.y, PLACES.garage.x, PLACES.garage.y) < 120 ? 'done' : null;
         } },
     ],
   },
@@ -103,17 +105,16 @@ const MISSIONS = [
     brief: 'Meridian keeps its real ledger in a market stall. Take it back — and get out alive.',
     setup() {},
     steps: [
-      reach(PLACES.market.x, PLACES.market.y, 115, 'Go to the Old Mercado market'),
+      reach(PLACES.market.x, PLACES.market.y, 145, 'Go to the Old Mercado market'),
       { text: 'Grab the ledger from the stall (on foot)', marker: { x: PLACES.market.x, y: PLACES.market.y },
         onEnter(G) {
           spawnGuard(G, 1030, 470, { missionTag: 'm3' });
           spawnGuard(G, 1330, 470, { missionTag: 'm3' });
           spawnGuard(G, 1030, 690, { missionTag: 'm3' });
-          spawnGuard(G, 1330, 690, { missionTag: 'm3' });
           G.toast = 'Meridian guards! Grab the ledger and run.';
         },
-        update: (G) => (!G.player.car && dist(G.player.x, G.player.y, PLACES.market.x, PLACES.market.y) < 36) ? 'done' : null },
-      reach(PLACES.safehouse.doorX, PLACES.safehouse.doorY, 75, 'Escape to the safehouse'),
+        update: (G) => (!G.player.car && dist(G.player.x, G.player.y, PLACES.market.x, PLACES.market.y) < 55) ? 'done' : null },
+      reach(PLACES.safehouse.doorX, PLACES.safehouse.doorY, 110, 'Escape to the safehouse'),
     ],
   },
   {
@@ -124,7 +125,7 @@ const MISSIONS = [
       { text: 'Break line of sight and lose the police (alleys help)', marker: null,
         update: (G) => G.policeState.wanted === 0 && G.policeState.heat <= 0 ? 'done' : null },
       { text: "Report to Eli at the garage", marker: { x: PLACES.garage.doorX, y: PLACES.garage.doorY },
-        update: (G) => dist(G.player.x, G.player.y, PLACES.garage.doorX, PLACES.garage.doorY) < 95 ? 'done' : null },
+        update: (G) => dist(G.player.x, G.player.y, PLACES.garage.doorX, PLACES.garage.doorY) < 120 ? 'done' : null },
     ],
   },
   {
@@ -132,8 +133,8 @@ const MISSIONS = [
     brief: 'A timed run along the promenade and up through the docks. Beat the clock, keep the car.',
     setup() {},
     steps: [
-      reach(300, PROMENADE_START_Y, 95, 'Reach the circuit start on the promenade (in a car)', { inCar: true }),
-      checkpoints([[900, 2240], [1500, 2240], [2100, 2240], [2700, 2240], [3300, 2240], [3300, 1480]], 150, 'Coastline Circuit'),
+      reach(300, PROMENADE_START_Y, 130, 'Reach the circuit start on the promenade (in a car)', { inCar: true }),
+      checkpoints([[900, 2240], [1500, 2240], [2100, 2240], [2700, 2240], [3300, 2240], [3300, 1480]], 240, 'Coastline Circuit'),
     ],
   },
   {
@@ -145,12 +146,11 @@ const MISSIONS = [
       run.data.car = v;
     },
     steps: [
-      reach(PLACES.docksGate.x, PLACES.docksGate.y, 95, 'Infiltrate Meridian Docks'),
+      reach(PLACES.docksGate.x, PLACES.docksGate.y, 130, 'Infiltrate Meridian Docks'),
       { text: 'Steal the evidence van (E)', marker: (run) => ({ x: run.data.car.x, y: run.data.car.y }),
         onEnter(G) {
           spawnGuard(G, 2460, 1830, { missionTag: 'm6', alert: true });
           spawnGuard(G, 2660, 1830, { missionTag: 'm6', alert: true });
-          spawnGuard(G, 2560, 2020, { missionTag: 'm6', alert: true });
           G.toast = 'Yard guards! Get to the van.';
         },
         update: (G, run) => {
@@ -160,7 +160,7 @@ const MISSIONS = [
       { text: 'Deliver the van to Eli — survive the chase', marker: { x: PLACES.garage.x, y: PLACES.garage.y },
         update: (G, run) => {
           if (run.data.car.wrecked) { run.failReason = 'The evidence van is wrecked — the evidence is gone.'; return 'fail'; }
-          return dist(run.data.car.x, run.data.car.y, PLACES.garage.x, PLACES.garage.y) < 100 ? 'done' : null;
+          return dist(run.data.car.x, run.data.car.y, PLACES.garage.x, PLACES.garage.y) < 135 ? 'done' : null;
         } },
     ],
   },

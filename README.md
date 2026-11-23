@@ -4,8 +4,10 @@
 
 # Brisava: Harbor Run
 
-An original open-world crime game in the browser — a 2.5D top-down Canvas 2D city built with
-plain JavaScript ES modules. No libraries, no build step, no network.
+An original open-world crime game in the browser — a real 3D city (Three.js, vendored under
+`game/vendor/` so it runs fully offline) driven by a hand-rolled JavaScript simulation.
+No build step, no network. If WebGL is unavailable it falls back to a flat 2D view of the
+same city, so it never breaks.
 
 You are **Mara Venn**, a freelance driver working off the debts of Eli Rook's little garage
 while the port contractor **Meridian Quay** — fronted by the smiling Iris Vale — rigs every
@@ -16,6 +18,11 @@ park, quiet houses).
 
 What's in the city:
 
+- **A real 3D view with three cameras** — extruded buildings in each district's palette,
+  low-poly cars and people, flashing cruiser light bars, dock cranes and warm sun shadows,
+  all drawn from the same world data the physics uses. Press **C** to switch camera:
+  **Chase** (behind and above, the default), **Top** (high overhead) and **Street**
+  (down at pavement level).
 - **On foot and behind the wheel** — walk, sprint on stamina, aim and shoot with the mouse,
   melee, reload; steal three classes of car (balanced sedan, fast drifty coupe, heavy van)
   plus the odd police cruiser, each with its own acceleration, grip, damage and wreck state.
@@ -24,9 +31,11 @@ What's in the city:
 - **A real wanted system** — crimes raise heat (theft, assault, gunfire, ramming a cruiser);
   police patrol, investigate, pursue on line of sight (buildings break it), search your last
   known position, and disengage. Three stars bring three cruisers and foot officers.
-- **A six-mission story** — First Fare, Borrowed Wheels, Market Pressure, Vanishing Point,
-  Coastline Circuit and the Harbor Run finale — plus repeatable delivery jobs, a garage shop
-  (ammo, repairs, a permanent turbo), and autosaves at mission ends and the safehouse.
+- **A six-mission story, tuned friendly** — First Fare, Borrowed Wheels, Market Pressure,
+  Vanishing Point, Coastline Circuit and the Harbor Run finale — with generous timers, big
+  trigger zones and soft-hearted guards, made to be finished by a casual player. Plus
+  repeatable delivery jobs, a garage shop (ammo, repairs, a permanent turbo), and autosaves
+  at mission ends and the safehouse.
 - **Synthesized sound** — engine, horn, gunshots, sirens and chimes from Web Audio. No files.
 
 ## Controls
@@ -38,6 +47,7 @@ What's in the city:
 | Mouse + click | Aim and shoot |
 | F / R | Melee / reload |
 | E | Interact · enter/exit a car · take a job |
+| C | Camera: Chase / Top / Street |
 | Space / H | Handbrake / horn |
 | B / J | Garage shop / delivery job (at the garage) |
 | M / Esc | City map / pause |

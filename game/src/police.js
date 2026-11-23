@@ -154,7 +154,7 @@ export function updatePolice(G, dt) {
     }
   } else {
     P.unseenFor += dt;
-    if (P.mode === 'pursue' && P.unseenFor > 3) { P.mode = 'search'; P.searchFor = 14; }
+    if (P.mode === 'pursue' && P.unseenFor > 3) { P.mode = 'search'; P.searchFor = 10; }
   }
   if (P.mode === 'search') {
     P.searchFor -= dt;
@@ -163,7 +163,9 @@ export function updatePolice(G, dt) {
   // Heat cools only while unseen, all the way to zero — gating this on wanted > 0 would
   // strand heat just under the 1-star threshold forever (wanted reads 0 at heat < 12,
   // so the last 12 points could never cool and "lose the police" could never complete).
-  if (!P.seenNow && P.unseenFor > 3 && P.heat > 0) P.heat = Math.max(0, P.heat - 3.4 * dt);
+  // The cooling is quick once eyes are off her (a friendly tuning): two seconds out of
+  // sight, then the manhunt bleeds away fast enough that alleys genuinely save you.
+  if (!P.seenNow && P.unseenFor > 2 && P.heat > 0) P.heat = Math.max(0, P.heat - 5.6 * dt);
   P.wanted = wantedForHeat(P.heat);
   if (P.wanted === 0 && P.mode !== 'calm') { P.mode = 'calm'; P.bust = 0; }
 
