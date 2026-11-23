@@ -52,6 +52,13 @@ resize();
 
 /* ---------- input ---------- */
 
+// Two kinds of input live here. `keys` is the held state, read fresh by every fixed
+// step. `pressed` (and the mouse `clicked` latch) is a QUEUE of one-shot taps: an
+// entry is added by the event listener and removed only when a consumer has had its
+// one action — the first fixed step that runs after the tap (gameplay actions), or
+// handleKeys (mode keys, menu clicks). A tap is never wiped unread: a frame in which
+// no fixed step runs leaves the queue standing for the next frame's first step, so
+// one tap is exactly one action — never zero, never two.
 const input = {
   keys: new Set(), pressed: new Set(),
   mouse: { x: 0, y: 0, down: false, clicked: false },
@@ -63,7 +70,7 @@ window.addEventListener('keydown', (e) => {
   G.audio.unlock();
 });
 window.addEventListener('keyup', (e) => input.keys.delete(e.code));
-window.addEventListener('blur', () => { input.keys.clear(); input.pressed.clear(); input.mouse.down = false; });
+window.addEventListener('blur', () => { input.keys.clear(); input.pressed.clear(); input.mouse.down = false; input.mouse.clicked = false; });
 // Mouse input is heard on the window, not one canvas: after the WebGL/HUD canvas split
 // no stacking or overlay quirk can swallow a press before it reaches the game.
 window.addEventListener('mousemove', (e) => { input.mouse.x = e.clientX; input.mouse.y = e.clientY; });
@@ -275,25 +282,37 @@ function handleKeys() {
       }
     }
   }
+  // Menu screens consume a click in the frame they see it (as they always have);
+  // in play the click latch belongs to the fixed steps, so it stays queued there.
+  if (G.mode !== 'play') input.mouse.clicked = false;
+  // Mode keys are consumed HERE and deleted from the press queue as they are used:
+  // a press that waited out a step-less frame is delivered to exactly one reader,
+  // never left behind for a fixed step — or next frame's mode handling — to act on
+  // a second time (an Escape that paused must not still be queued to unpause).
+  const tap = (code) => {
+    if (!input.pressed.has(code)) return false;
+    input.pressed.delete(code);
+    return true;
+  };
   if (G.mode === 'play') {
-    if (input.pressed.has('Escape')) {
+    if (tap('Escape')) {
       if (G.shopOpen) G.shopOpen = false;
       else G.mode = 'pause';
-    } else if (input.pressed.has('KeyM')) G.mode = 'map';
-    else if (input.pressed.has('KeyC') && renderer3d) {
+    } else if (tap('KeyM')) G.mode = 'map';
+    else if (tap('KeyC') && renderer3d) {
       renderer3d.cycle();
       G.toast = `Camera: ${renderer3d.label()}`;
       G.toastAt = G.time;
       G.audio.click();
     }
   } else if (G.mode === 'map') {
-    if (input.pressed.has('KeyM') || input.pressed.has('Escape')) G.mode = 'play';
+    if (tap('KeyM') || tap('Escape')) G.mode = 'play';
   } else if (G.mode === 'pause') {
-    if (input.pressed.has('Escape')) G.mode = 'play';
+    if (tap('Escape')) G.mode = 'play';
   } else if (G.mode === 'controls' || G.mode === 'audio') {
-    if (input.pressed.has('Escape')) handleAction('back');
+    if (tap('Escape')) handleAction('back');
   } else if (G.mode === 'menu') {
-    if (input.pressed.has('Enter')) newGame();
+    if (tap('Enter')) newGame();
   }
 }
 
@@ -359,16 +378,25 @@ if (shotName) {
       while (accumulator >= STEP) {
         updateWorld(STEP, G.mode === 'play');
         accumulator -= STEP;
-        // A press is ONE action: only the first fixed step of a frame may consume it.
-        // Clearing here stops a hitched frame (several steps per rAF) from buying a
-        // whole shelf in one shop tap or entering and instantly exiting a car on E.
+        // A press is ONE action: the first fixed step after it consumes it, and
+        // clearing here stops a hitched frame (several steps per rAF) from buying
+        // a whole shelf in one shop tap or entering and instantly exiting a car
+        // on E. If NO step ran this frame (a fast frame at a high refresh rate),
+        // the queue is deliberately left standing: the tap waits for the first
+        // step of a later frame instead of being wiped unread — the old
+        // unconditional end-of-frame clear ate whole taps that way.
         input.pressed.clear();
         input.mouse.clicked = false;
       }
-    } else accumulator = 0;
+    } else {
+      accumulator = 0;
+      // Modes without fixed steps have no step-consumers: handleKeys above was the
+      // only reader, so whatever is left in the queue is stale — drop it rather
+      // than leaking a pause-menu press into the first step back in play.
+      input.pressed.clear();
+      input.mouse.clicked = false;
+    }
     draw();
-    input.pressed.clear();
-    input.mouse.clicked = false;
   }
   requestAnimationFrame(frame);
 }

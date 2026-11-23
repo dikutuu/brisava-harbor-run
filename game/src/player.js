@@ -1,7 +1,8 @@
 // Mara Venn: on foot she walks and sprints (stamina permitting), aims with the mouse, and
 // interacts with whatever is closest — a car door, the garage counter, a mission marker. In a
-// car she is the car. The camera follows with a dead zone on foot and a speed look-ahead
-// behind the wheel, so driving fast never means driving blind.
+// car she is the car. Her movement is relative to her own facing, never to the camera or the
+// map (see updatePlayerOnFoot). The camera follows with a dead zone on foot and a speed
+// look-ahead behind the wheel, so driving fast never means driving blind.
 
 import { PLACES, angleLerp, clamp, collideCircle, dist } from './world.js';
 import { damageVehicle, doorSpot, driveVehicle, nearestVehicle } from './vehicles.js';
@@ -47,7 +48,9 @@ export function updatePlayerOnFoot(G, input, dt) {
   else if (p.moveBasis == null || MOVE_CODES.some((c) => input.pressed.has(c))) p.moveBasis = p.angle;
   const basis = aiming ? p.angle : (p.moveBasis == null ? p.angle : p.moveBasis);
   const fx = Math.cos(basis), fy = Math.sin(basis);
-  // Her right hand, in world terms: the facing vector turned a quarter-turn.
+  // The movement vector, built in facing space: -iy along the facing (W is
+  // "forward", stored as -1 above), ix across it (her right hand is the facing
+  // vector turned a quarter-turn clockwise, in world terms).
   let mx = -fy * ix + fx * -iy;
   let my = fx * ix + fy * -iy;
   const mag = Math.hypot(mx, my);

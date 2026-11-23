@@ -1,8 +1,9 @@
 // Everything drawn over the world: the HUD (health, stamina, ammo, money, wanted stars and
 // their seen/searching state, objective text with distance, speed, contextual hints, toasts),
-// the following minimap, the full city map, and all the menu screens — start, pause,
-// controls, audio, shop, busted/wasted, mission failed and story complete. Buttons register
-// their rectangles on G.buttons as they draw; the boot module turns clicks into actions.
+// the following circular minimap, the full city map with its legend, the district-name
+// announcements, and all the menu screens — start, pause, controls, audio, shop,
+// busted/wasted, mission failed and story complete. Buttons register their rectangles on
+// G.buttons as they draw; the boot module turns clicks into actions.
 
 import {
   DISTRICTS, H_ROADS, PLACES, PROMENADE_Y, ROAD_HALF, SAND_Y, SEA_Y, V_ROADS,
@@ -38,6 +39,8 @@ function button(ctx, G, x, y, w, h, label, action, opts = {}) {
 
 /* ---------- the city map: static art painted once, blips drawn per frame ---------- */
 
+// The map is painted at half world scale (one map pixel per two world units): large
+// enough to read street detail, small enough to paint once and blit cheaply.
 const MAP_SCALE = 0.5;
 let mapCanvas = null;
 

@@ -3,8 +3,10 @@
 // logic. World x stays x, world y becomes z, and height is up. Buildings rise as tinted
 // boxes from the world's own building data, cars and people are small low-poly models, and
 // three cameras (C cycles them): CHASE behind the action, TOP high above, STREET down at
-// pavement level. If WebGL is unavailable the constructor throws and main.js falls back to
-// the 2D renderer, so the game never breaks.
+// pavement level. Each frame it also publishes the mouse's ground point (G.aimWorld,
+// tagged with the screen point it was raycast from) so combat can aim where the player
+// actually points. If WebGL is unavailable the constructor throws and main.js falls back
+// to the 2D renderer, so the game never breaks.
 
 import * as THREE from '../vendor/three.module.min.js';
 import {
@@ -362,6 +364,8 @@ export function createRenderer3D(canvas) {
   const hitPoint = new THREE.Vector3();
   const projPoint = new THREE.Vector3();
 
+  // The follow heading is the renderer's own smoothed copy of Mara's (or her car's)
+  // facing; the simulation never reads it — it only decides where the cameras sit.
   let mode = 'chase';
   let heading = -Math.PI / 2;
   let snapped = false;

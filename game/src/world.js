@@ -2,7 +2,8 @@
 // world is identical on every load (saves and screenshots depend on that). This module owns the
 // shared geometry — roads and their lanes, buildings, the sea — and the questions every other
 // system asks of it: collision, line of sight, "where is the road", "which district is this".
-// The renderer and the minimap draw from the same data, so what you see is what you hit.
+// The renderer and both maps (minimap and big map) draw from the same data, so what you see
+// is what you hit.
 
 export const WORLD_W = 3600;
 export const WORLD_H = 2600;
@@ -16,7 +17,8 @@ export const SEA_Y = 2400;
 export const SAND_Y = 2286;
 
 /** The four districts, split by the middle of the grid. `mapGround` is the dark block
-    colour the city map paints the district in; `blurb` is its one-line map description. */
+    colour the city map paints the district in (the 3D ground uses the lighter `ground`);
+    `blurb` is its one-line map description, shown under the big map's title. */
 export const DISTRICTS = [
   { id: 'mercado', name: 'Old Mercado', x0: 0, y0: 0, x1: 1780, y1: 1180, ground: '#b8a888', park: '#5d8f4e', mapGround: '#57503f', blurb: 'Market streets, murals and tenements around the plaza.' },
   { id: 'ridgeview', name: 'Ridgeview', x0: 1780, y0: 0, x1: 3600, y1: 1180, ground: '#a9b184', park: '#639657', mapGround: '#4c5138', blurb: 'Quiet hillside homes and the big green park.' },
